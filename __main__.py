@@ -1,97 +1,58 @@
 import math
+from math import sqrt
 import matplotlib.pyplot as plt
+import numpy as np
 
-# GOAL: Solve for V_0(0)
+# s - stock price
+# t - time til maturity
+# K - strike
+# vol - volatility parameter (sigma)
+# r - interest rate
+# n - approximation steps
+def P(s, t, K, vol, r, n):
+    dt = t/n                       # timestep
+    u = math.e**(vol * sqrt(dt))   # multiplicative factor
+    d = 1/u                        # "
+    p = (1 + r*dt - d)/(u-d)       # prob. of upstep
+    beta = math.e**(-r * dt)       # interest rate per time period
 
-# helper function to calculate stock price dictionary at time 'k' given 'i' jumps where i ranges (0, k) inclusive
-def stock_price_n(s, n, u, d):
+    bdy = {}
     
-    time_n_prices = {}
-    for i in range(0, n+1):
-        s_k = (u**i) * (d**(n-i)) * (s) 
-        time_n_prices[i] = round(s_k, 3)
-
-    return time_n_prices
-
-# helper function to compute payout of put at time n, either equal to 0 or K - (stock price) <-> equivalent to finding V_n(i) where i ranges (0, k) inclusive
-def put_payouts_n(n, time_k_stock, K):
-
-    time_n_payout = {}
-    for i in range(0, n+1):
-        time_n_payout[i] = round(max(0, K - time_k_stock[i]), 3)
-
-    return time_n_payout
-
-# algo: V_k(i) = max(K - u^i d^(k - i)s, Beta * p_up * V_(k+1)(i + 1) + Beta * (1 - p_up) * V_(k+1)(i + 1))
-def backwards_iteration_payouts(s, n, payouts, K, beta, u, d, p_up, p_down):
-
-    # at each n value, there is a level (i?) where it becomes better to hold the option than to exercise it
-
-    # payouts are as of time n for the first iteration, then reference earlier computations throughout remainder of loops
-    time_k_payout = {}
-    hold_integers = {}
-
-    for n_iter in range(n-1, 0, -1):
-        for i in range(0, n_iter+1):
-
-            # uses payouts from leafs nodes in the first loop
-            if n_iter == (n-1):
-                exercise_payout = (K - ((u**i) * (d**(n_iter-i)) * (s)))
-                expected_return = (beta)*(p_up)*(payouts[i+1]) + (beta)*(p_down)*(payouts[i])
-                time_k_payout[n_iter, i] = round(max(exercise_payout, expected_return), 3)
-
-                if (expected_return > exercise_payout) & (n_iter not in hold_integers.keys()):
-                    hold_integers[n_iter] = i
-
+    V_kp1 = []
+    for k in range(n, -1, -1):
+        print("Calculating step ", k)
+        V_k = []
+        for i in range(0, k+1):
+            exer = max(K - s * (u**i * d**(k-i)), 0) # payout if exercised now
+            if len(V_kp1) != 0:
+                ev_hold = beta * (p * V_kp1[i+1] + (1-p) * V_kp1[i])
             else:
-                exercise_payout = (K - ((u**i) * (d**(n_iter-i)) * (s)))
-                expected_return = (beta)*(p_up)*(time_k_payout[(n_iter + 1), i+1]) + (beta)*(p_down)*(time_k_payout[(n_iter + 1), i])
-                time_k_payout[n_iter, i] = round(max(exercise_payout, expected_return), 3)
+                ev_hold = 0
+                
+            print(i, " ", "Exercise ev:", exer, " ", "Hold ev:", ev_hold)
+            # in this direction, at some point, it becomes better to hold
 
-                if (expected_return > exercise_payout) & (n_iter not in hold_integers.keys()):
-                    hold_integers[n_iter] = i
+            if k not in bdy and ev_hold >= exer:
+                bdy[k] = s * u**i * d**(k-i)
+            
+            V_k.append(max(exer, ev_hold))
 
-    
-    # extract final two time 1 payouts required to calculate V_0(0)
-    V_10 = time_k_payout[(1, 0)]
-    V_11 = time_k_payout[(1, 1)]
-    put_price = round(max((K - s), beta*(p_up)*V_11 + beta*(p_down)*V_10), 3)
 
-    return put_price, hold_integers
+            
+        V_kp1 = V_k[:]
 
-def graph_thresholds(s, u, d, holds_thresholds):
-    s_0 = s
-    stock_prices = []
-
-    for key, value in holds_thresholds.items():
-        mature_price = s_0 * (u**value) * (d**(key - value))
-        stock_prices.append(mature_price)
-
-    plt.plot(range(1, len(stock_prices)+1), stock_prices)
-    plt.show()
-
-def solve(s, t, K, sig, r, n):
-
-    # Define Parameters Required for 
-    delta = round(t/n, 4)
-    u = round(math.e**(sig * math.sqrt(delta)), 4)
-    d = round(math.e**(-sig * math.sqrt(delta)), 4)
-    p_up = round((1 + r*delta - d)/(u-d), 4)
-    p_down = round((1 - p_up), 4)
-    beta = round(math.e**(-r * delta), 4)
-    
-    # Returns prices at time n, followed by put payouts at time n (first step of the algo.), the run algo.
-    time_n_prices = stock_price_n(s, n, u, d)
-    time_n_payouts = put_payouts_n(n, time_n_prices, K)
-    put_price = backwards_iteration_payouts(s, n, time_n_payouts, K, beta, u, d, p_up, p_down)[0]
-    hold_thresholds = backwards_iteration_payouts(s, n, time_n_payouts, K, beta, u, d, p_up, p_down)[1]
-
-    print(put_price)
-    graph_thresholds(s, u, d, hold_thresholds)
-
+    return V_kp1[0],bdy
 
 def main():
-    solve(9, 1/4, 10, 0.3, 0.06, 10)
+    t = 0.5
+    n = 5000
+    price, bdy = P(s=51, t=t, K=53, vol=0.32, r=0.05, n=n)
+
+    T = np.linspace(0.0, t, n+1)
+    b = dict(sorted(bdy.items()))
+    b = list(b.values())
+    plt.plot(T, b)
+    plt.show()
 
 
 if __name__ == "__main__":
